@@ -9,13 +9,12 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Welcome bondShield world!")
+        // Uygulama açıldığında ilk olarak LoginView'ı göster.
+        // Başarılı bir girişten sonra bu görünüm, PropertiesListView'a veya AgencyDashboardView'a yönlendirmelidir.
+        // Şimdilik, başlangıç noktası olarak LoginView'ı kullanıyoruz.
+        NavigationView {
+            LoginView()
         }
-        .padding()
     }
 }
 
