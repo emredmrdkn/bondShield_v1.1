@@ -1,174 +1,90 @@
-//
-//  InspectionDetailView.swift
-//  bondshield_v1
-//
-//  Created by Emre Demirdöken on 21.08.2025.
-//
 
 import SwiftUI
 
-// Karşılaştırma için denetim verilerini tutan yapı.
-struct InspectionData {
-    let id: String
-    let type: String // "move_in" veya "move_out"
-    let evidence: [Evidence] // CaptureView'da tanımlanan Evidence struct'ını kullanıyoruz
-}
-
-// InspectionDetailView, bir mülkün denetimlerini ve kanıtlarını detaylı olarak gösterir.
-// API Endpoints: GET /agency/inspections/{id}, GET /agency/inspections/{id}/compare, POST /comments
+// InspectionDetailView, bir denetimin detaylarını gösterir.
+// ViewModel'den aldığı verileri gösterir ve kullanıcı etkileşimlerini ViewModel'e iletir.
 struct InspectionDetailView: View {
     
-    let propertyId: String
-    let propertyAddress: String
+    // ViewModel'i bir StateObject olarak oluşturuyoruz.
+    @StateObject private var viewModel = InspectionDetailViewModel()
     
-    @State private var moveInData: InspectionData?
-    @State private var moveOutData: InspectionData?
-    @State private var commentText: String = ""
-
+    let inspectionId: String
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Üst bilgi ve ana eylemler
-                headerView
-                
-                Divider()
-                
-                // Karşılaştırma bölümü
-                if let moveInData = moveInData, let moveOutData = moveOutData {
-                    comparisonView(moveIn: moveInData, moveOut: moveOutData)
-                } else if let moveInData = moveInData {
-                    singleInspectionView(inspection: moveInData)
-                } else {
-                    Text("Bu mülk için henüz denetim verisi bulunmuyor.")
+                if viewModel.isLoading {
+                    ProgressView("Denetim Detayları Yükleniyor...")
+                } else if let errorMessage = viewModel.errorMessage {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
                         .padding()
+                } else if let inspection = viewModel.inspection {
+                    inspectionDetailContent(inspection: inspection)
+                } else {
+                    Text("Denetim detayı bulunamadı.")
                 }
-                
-                // Yorum ekleme bölümü
-                commentSection
             }
             .padding()
         }
-        .navigationTitle(propertyAddress)
+        .navigationTitle("Denetim Detayı")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear(perform: fetchInspectionDetails)
-    }
-    
-    // Üst bilgi ve butonları içeren görünüm.
-    private var headerView: some View {
-        HStack {
-            Text("Denetim Raporları")
-                .font(.title2)
-                .fontWeight(.bold)
-            Spacer()
-            Menu {
-                Button("Değişiklik İste", action: { updateInspectionStatus("request_changes") })
-                Button("Raporu Onayla", action: { updateInspectionStatus("approve") })
-            } label: {
-                Label("Eylemler", systemImage: "ellipsis.circle")
-            }
+        .task {
+            // View göründüğünde ViewModel'den denetim detaylarını çekmesini istiyoruz.
+            await viewModel.fetchInspectionDetails(for: inspectionId)
         }
     }
     
-    // Tek bir denetim raporunu (sadece move-in) gösteren görünüm.
-    private func singleInspectionView(inspection: InspectionData) -> some View {
-        VStack(alignment: .leading) {
-            Text("Giriş Raporu (Move-in)").font(.headline)
-            ForEach(inspection.evidence) { ev in
-                evidenceRow(ev)
-            }
-        }
-    }
-    
-    // Move-in ve Move-out raporlarını yan yana karşılaştıran görünüm.
-    private func comparisonView(moveIn: InspectionData, moveOut: InspectionData) -> some View {
-        VStack {
-            Text("Giriş ve Çıkış Karşılaştırması")
-                .font(.title3)
-                .fontWeight(.bold)
+    // Denetim detaylarını gösteren ana içerik.
+    private func inspectionDetailContent(inspection: Inspection) -> some View {
+        VStack(alignment: .leading, spacing: 15) {
+            detailRow(label: "Durum", value: inspection.status)
+            detailRow(label: "Denetçi", value: inspection.inspector)
+            detailRow(label: "Tarih", value: inspection.date, format: .date)
             
-            // Bu örnekte, her iki rapordaki ilk kanıtı yan yana gösteriyoruz.
-            // Gerçek uygulamada bu, oda bazında veya kanıt bazında daha detaylı olabilir.
-            HStack(alignment: .top, spacing: 10) {
-                VStack {
-                    Text("Giriş (Move-in)").font(.headline)
-                    if let evidence = moveIn.evidence.first {
-                        evidenceRow(evidence)
-                    }
+            Divider()
+            
+            // Bu denetime ait odaları listelemek için bir sonraki adıma yönlendirme
+            NavigationLink(destination: RoomListView(inspectionId: inspection.id)) {
+                HStack {
+                    Text("Denetimi Başlat / Devam Et")
+                    Spacer()
+                    Image(systemName: "arrow.right")
                 }
-                Divider()
-                VStack {
-                    Text("Çıkış (Move-out)").font(.headline)
-                    if let evidence = moveOut.evidence.first {
-                        evidenceRow(evidence)
-                    }
-                }
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(10)
             }
         }
     }
     
-    // Tek bir kanıtı gösteren satır.
-    private func evidenceRow(_ evidence: Evidence) -> some View {
-        VStack(alignment: .leading) {
-            Image(systemName: evidence.thumbnailUrl)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(height: 150)
-                .cornerRadius(8)
-            Text(evidence.fileName).font(.caption)
-            if let note = evidence.note {
-                Text("Not: \(note)").font(.caption).italic()
-            }
-        }.padding(.bottom)
-    }
-    
-    // Yorum ekleme alanı.
-    private var commentSection: some View {
-        VStack(alignment: .leading) {
-            Text("Yorum Ekle").font(.headline)
-            TextEditor(text: $commentText)
-                .frame(height: 100)
-                .border(Color.gray, width: 0.2)
-                .cornerRadius(8)
-            Button("Yorumu Gönder", action: postComment)
+    // Detay satırlarını oluşturan yardımcı bir view.
+    private func detailRow(label: String, value: String) -> some View {
+        HStack {
+            Text("\(label):")
+                .fontWeight(.bold)
+            Text(value)
+            Spacer()
         }
     }
-
-    // --- API Fonksiyonları ---
     
-    private func fetchInspectionDetails() {
-        print("API -> GET /agency/inspections/{id} veya /compare çağrılıyor...")
-        // Simülasyon: Hem move-in hem de move-out verisi olduğunu varsayalım.
-        self.moveInData = InspectionData(
-            id: "insp_123", type: "move_in", evidence: [
-                Evidence(id: "ev_1", fileName: "movein_kitchen.jpg", thumbnailUrl: "photo.fill", note: "Yeni gibi.")
-            ]
-        )
-        self.moveOutData = InspectionData(
-            id: "insp_456", type: "move_out", evidence: [
-                Evidence(id: "ev_10", fileName: "moveout_kitchen.jpg", thumbnailUrl: "photo.fill", note: "Fırın kapağında çizik var.")
-            ]
-        )
-    }
-    
-    private func postComment() {
-        guard !commentText.isEmpty else { return }
-        print("API -> POST /agency/inspections/{id}/comments çağrılıyor...")
-        print("Body: { text: \"\(commentText)\" }")
-        // Simülasyon: Başarılı istek sonrası alanı temizle.
-        self.commentText = ""
-    }
-    
-    private func updateInspectionStatus(_ status: String) {
-        print("API -> POST /agency/inspections/{id}/status çağrılıyor...")
-        print("Body: { status: \"\(status)\" }")
+    // Tarih formatlaması için overload edilmiş bir yardımcı view.
+    private func detailRow(label: String, value: Date, format: Date.FormatStyle) -> some View {
+        HStack {
+            Text("\(label):")
+                .fontWeight(.bold)
+            Text(value, format: format)
+            Spacer()
+        }
     }
 }
 
-// #Preview için.
+// Preview için.
 struct InspectionDetailView_Previews: PreviewProvider {
     static var previews: some View {
         NavigationView {
-            InspectionDetailView(propertyId: "prop_123", propertyAddress: "123 Preview St, Sydney")
+            InspectionDetailView(inspectionId: "insp_preview_123")
         }
     }
 }

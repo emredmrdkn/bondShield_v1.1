@@ -1,63 +1,59 @@
-//
-//  PropertiesListView.swift
-//  bondshield_v1
-//
-//  Created by Emre Demirdöken on 21.08.2025.
-//
 
 import SwiftUI
 
-// Mülk verisini temsil eden basit bir struct. API modeline göre genişletilecek.
-// Model: properties(id, address_line, unit, city, state, postcode, agencyId, geo)
-struct Property: Identifiable {
-    let id: UUID
-    let address: String
-    let imageUrl: String // Mülk görseli için bir alan
-}
-
-// PropertiesListView, kiracının ilişkili olduğu mülkleri listeler.
-// API Endpoint: GET /properties?as=tenant
+// PropertiesListView, ViewModel'den aldığı verileri gösterir ve kullanıcı etkileşimlerini ViewModel'e iletir.
 struct PropertiesListView: View {
     
-    // Örnek mülk verileri. Bu dizi, API'den gelen gerçek veriyle doldurulacak.
-    @State private var properties: [Property] = [
-        Property(id: UUID(), address: "123 Apple St, Sydney NSW 2000", imageUrl: "house.fill"),
-        Property(id: UUID(), address: "456 Orange Ave, Melbourne VIC 3000", imageUrl: "building.2.fill"),
-        Property(id: UUID(), address: "789 Banana Rd, Brisbane QLD 4000", imageUrl: "house.circle.fill")
-    ]
+    // ViewModel'i bir StateObject olarak oluşturuyoruz.
+    // Bu, view'un yaşam döngüsü boyunca ViewModel'in tek bir örneğinin kalmasını sağlar.
+    @StateObject private var viewModel = PropertiesListViewModel()
     
     var body: some View {
         NavigationView {
             VStack {
-                // Eğer hiç mülk yoksa gösterilecek boş durum ekranı.
-                if properties.isEmpty {
+                // ViewModel'in yüklenme durumuna göre farklı görünümler gösterilir.
+                if viewModel.isLoading {
+                    ProgressView("Mülkler Yükleniyor...")
+                } else if let errorMessage = viewModel.errorMessage {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .padding()
+                } else if viewModel.properties.isEmpty {
                     emptyStateView
                 } else {
-                    // Mülkleri listeleyen ana görünüm.
-                    List(properties) { property in
-                        // Her bir mülk için satır görünümü ve gezinme linki
-                        NavigationLink(destination: StartInspectionView(property: property)) {
-                            HStack(spacing: 15) {
-                                Image(systemName: property.imageUrl)
-                                    .font(.largeTitle)
-                                    .foregroundColor(.blue)
-                                
-                                VStack(alignment: .leading) {
-                                    Text(property.address)
-                                        .font(.headline)
-                                    // Opsiyonel: GET /properties/{id}/last-inspections özetini göstermek için alan
-                                    Text("Son denetim: Beklemede")
-                                        .font(.subheadline)
-                                        .foregroundColor(.gray)
-                                }
-                            }
-                            .padding(.vertical, 10)
-                        }
-                    }
+                    propertiesList
                 }
             }
-            .navigationTitle("Mülklerim") // Ekran başlığı
-            .onAppear(perform: fetchProperties) // Ekran göründüğünde verileri çek
+            .navigationTitle("Mülklerim")
+            .task {
+                // .task, bu view göründüğünde asenkron bir işlemi başlatmanın modern yoludur.
+                // Eğer mülkler daha önce yüklenmediyse, ViewModel'den verileri çekmesini isteriz.
+                if viewModel.properties.isEmpty {
+                    await viewModel.fetchProperties()
+                }
+            }
+        }
+    }
+    
+    // Mülklerin listelendiği ana görünüm.
+    private var propertiesList: some View {
+        List(viewModel.properties) { property in
+            NavigationLink(destination: InspectionListView(property: property)) {
+                HStack(spacing: 15) {
+                    Image(systemName: "house.fill")
+                        .font(.largeTitle)
+                        .foregroundColor(.blue)
+                    
+                    VStack(alignment: .leading) {
+                        Text(property.name)
+                            .font(.headline)
+                        Text(property.address)
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding(.vertical, 10)
+            }
         }
     }
     
@@ -70,7 +66,6 @@ struct PropertiesListView: View {
                 .foregroundColor(.gray)
             Text("Henüz bir mülke bağlı değilsiniz.")
                 .padding()
-            // Opsiyonel: POST /properties/join (davet kodu ile katılma akışı)
             Button(action: { /* Davet kodu ile katılma ekranını aç */ }) {
                 Text("Davet Kodu ile Mülke Katıl")
                     .padding()
@@ -81,22 +76,15 @@ struct PropertiesListView: View {
             Spacer()
         }
     }
-    
-    // API'den mülk listesini çekmek için fonksiyon.
-    private func fetchProperties() {
-        // TODO: API -> GET /properties?as=tenant çağrısını yap
-        // Gelen veriyi 'properties' state'ine ata.
-        print("API'den mülk listesi çekiliyor...")
-    }
 }
 
-// StartInspectionView'in bu dosyadan erişilebilir olması için ön tanım.
-// Bu, derleme hatası almamak için geçici bir çözümdür.
-// Gerçek StartInspectionView dosyası ayrı olarak yönetilecek.
-struct StartInspectionView_PreviewProvider_Placeholder: View {
-    var property: Property
+// InspectionListView için bir önizleme ve yer tutucu.
+// Bu, projenin diğer kısımları tamamlanana kadar derleme hatalarını önler.
+struct InspectionListView: View {
+    let property: Property
     var body: some View {
-        Text("\(property.address) için denetimi başlat.")
+        Text("\(property.name) için denetimler listelenecek.")
+            .navigationTitle(property.name)
     }
 }
 
